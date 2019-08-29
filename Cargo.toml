@@ -1,0 +1,13 @@
+[package]
+name = "inotify-sse"
+version = "0.1.0"
+authors = ["Klein Florian <florian.klein@free.fr>"]
+edition = "2018"
+
+[dependencies]
+hyper-sse = "0.1.0"
+inotify = "0.7.0"
+futures = "0.1.28"
+hyper = "0.12.33"
+lazy_static = "1.4.0"
+tokio = "0.1.22"
