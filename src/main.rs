@@ -5,31 +5,46 @@ extern crate inotify;
 extern crate lazy_static;
 
 use hyper_sse::Server;
-use std::io::{self, BufRead};
-use std::path::Path;
+use std::env;
 use futures::Stream;
 use inotify::{Inotify, WatchMask};
+use walkdir::WalkDir;
 
 lazy_static! {
     static ref PUSH_SERVER: Server<u64> = Server::new();
 }
 
 fn main() {
-    let addr = ("[::1]:3000").parse().unwrap();
+    let addr = env::var("ADDR").unwrap_or("[::1]:3000".to_string()).parse().unwrap();
     PUSH_SERVER.spawn(addr);
 
     let auth_token = PUSH_SERVER.generate_auth_token(Some(0)).unwrap();
 
-    println!("curl 'http://[::1]:3000/push/0?{}'", auth_token);
-
+    println!("curl -isSL 'http://{}/push/0?{}'", addr, auth_token);
 
     let mut inotify = Inotify::init().expect("Failed to initialize inotify");
 
-    inotify.add_watch(Path::new("/tmp"), WatchMask::CREATE | WatchMask::MODIFY);
+    let watch_dir = env::var("WATCH_DIR").unwrap_or(".".to_string());
 
-    let mut buffer = [0; 32];
-    let stream = inotify.event_stream(&mut buffer);
-    for event in stream.wait() {
-        PUSH_SERVER.push(0, "update", &format!("{:?}", event)).ok();
+    for entry in WalkDir::new(watch_dir).follow_links(true).into_iter().filter_map(filter_dir) {
+        eprintln!("{:?}", entry);
+        let _ = inotify.add_watch(entry.path(), WatchMask::MODIFY);
     }
+
+    let mut buffer = [0; 1024];
+    let stream = inotify.event_stream(&mut buffer[..]);
+    for event in stream.wait() {
+        //eprintln!("{:?}", event.unwrap().name.unwrap());
+        PUSH_SERVER.push(0, "update", &format!("{}", event.unwrap().name.unwrap().to_string_lossy())).ok();
+    }
+}
+fn filter_dir(e: walkdir::Result<walkdir::DirEntry>) -> Option<walkdir::DirEntry> {
+    if let Ok(e) = e {
+        if let Ok(metadata) = e.metadata() {
+            if metadata.is_dir() {
+                return Some(e);
+            }
+        }
+    }
+    None
 }
